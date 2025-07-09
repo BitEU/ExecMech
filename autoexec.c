@@ -5,6 +5,8 @@
 #include <windows.h>
 #include <conio.h>
 #include <direct.h>
+#include <time.h>
+#include <errno.h>
 
 #pragma comment(lib, "user32.lib")
 
@@ -60,6 +62,21 @@ typedef struct {
     SMALL_RECT original_window_rect;
     WORD original_attributes;
 } OriginalConsoleSettings;
+
+void debug_log(const char* message) {
+    FILE* log = fopen("debug.log", "a");
+    if (log) {
+        time_t now = time(NULL);
+        char* time_str = ctime(&now);
+        time_str[strlen(time_str) - 1] = '\0'; // Remove newline
+        
+        char current_dir[MAX_PATH_LEN];
+        _getcwd(current_dir, MAX_PATH_LEN);
+        
+        fprintf(log, "[%s] PID:%d CWD:%s - %s\n", time_str, GetCurrentProcessId(), current_dir, message);
+        fclose(log);
+    }
+}
 
 void gotoxy(int x, int y) {
     COORD coord = { (SHORT)x, (SHORT)y };
@@ -281,6 +298,23 @@ void draw_ui(ProgramList* list) {
 
 // --- CORE LOGIC (Mostly Unchanged) ---
 
+void unescape_string(char* str) {
+    char* read_pos = str;
+    char* write_pos = str;
+    
+    while (*read_pos) {
+        if (*read_pos == '\\' && *(read_pos + 1) == '\\') {
+            *write_pos = '\\';
+            read_pos += 2;
+        } else {
+            *write_pos = *read_pos;
+            read_pos++;
+        }
+        write_pos++;
+    }
+    *write_pos = '\0';
+}
+
 int parse_json_file(const char* filename, Program* program) {
     FILE* file = fopen(filename, "r");
     if (!file) return 0;
@@ -288,10 +322,22 @@ int parse_json_file(const char* filename, Program* program) {
     while (fgets(line, sizeof(line), file)) {
         char* trimmed = line;
         while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
-        if (strncmp(trimmed, "\"name\"", 6) == 0) sscanf(trimmed, "\"name\": \"%[^\"]\"", program->name);
-        else if (strncmp(trimmed, "\"description\"", 13) == 0) sscanf(trimmed, "\"description\": \"%[^\"]\"", program->description);
-        else if (strncmp(trimmed, "\"command\"", 9) == 0) sscanf(trimmed, "\"command\": \"%[^\"]\"", program->command);
-        else if (strncmp(trimmed, "\"directory\"", 11) == 0) sscanf(trimmed, "\"directory\": \"%[^\"]\"", program->directory);
+        if (strncmp(trimmed, "\"name\"", 6) == 0) {
+            sscanf(trimmed, "\"name\": \"%[^\"]\"", program->name);
+            unescape_string(program->name);
+        }
+        else if (strncmp(trimmed, "\"description\"", 13) == 0) {
+            sscanf(trimmed, "\"description\": \"%[^\"]\"", program->description);
+            unescape_string(program->description);
+        }
+        else if (strncmp(trimmed, "\"command\"", 9) == 0) {
+            sscanf(trimmed, "\"command\": \"%[^\"]\"", program->command);
+            unescape_string(program->command);
+        }
+        else if (strncmp(trimmed, "\"directory\"", 11) == 0) {
+            sscanf(trimmed, "\"directory\": \"%[^\"]\"", program->directory);
+            unescape_string(program->directory);
+        }
     }
     fclose(file);
     return 1;
@@ -337,33 +383,90 @@ int handle_input(ProgramList* list, OriginalConsoleSettings* originalSettings) {
         if (list->count > 0) {
             Program* current = &list->programs[list->selected];
             if (strlen(current->directory) > 0) {
-                // Save current working directory
-                char original_dir[MAX_PATH_LEN];
-                _getcwd(original_dir, MAX_PATH_LEN);
+                debug_log("DEBUG-1: ENTER pressed - launching shell");
+                
+                char debug_msg[MAX_PATH_LEN + 100];
+                snprintf(debug_msg, sizeof(debug_msg), "DEBUG-2: Target directory: %s", current->directory);
+                debug_log(debug_msg);
+                
+                debug_log("DEBUG-3: About to check directory existence");
+                DWORD attrs = GetFileAttributes(current->directory);
+                char attr_msg[200];
+                snprintf(attr_msg, sizeof(attr_msg), "DEBUG-4: Directory attributes: 0x%08X", attrs);
+                debug_log(attr_msg);
+                
+                if (attrs == INVALID_FILE_ATTRIBUTES) {
+                    debug_log("DEBUG-5: ERROR - Directory does not exist!");
+                    return 0;
+                }
+                
+                debug_log("DEBUG-6: Directory exists, using direct cmd approach");
                 
                 // Restore original console settings before launching shell
+                debug_log("DEBUG-7: About to restore console settings");
                 restore_original_settings(originalSettings);
+                debug_log("DEBUG-8: Console settings restored");
                 
-                _chdir(current->directory);
-                printf("%s", current->directory);
-                system("cmd.exe"); // Launch a shell in the new directory
+                // FIXED: Properly escape the directory path for cmd.exe
+                // Use escaped quotes \" around the path itself
+                debug_log("DEBUG-9: Building command string");
+                char cmd_command[MAX_PATH_LEN + 50];
+                snprintf(cmd_command, sizeof(cmd_command), "cmd.exe /k cd /d \"%s\"", current->directory);
                 
-                // Restore original working directory
-                _chdir(original_dir);
+                char cmd_debug[MAX_PATH_LEN + 100];
+                snprintf(cmd_debug, sizeof(cmd_debug), "DEBUG-10: Command to execute: %s", cmd_command);
+                debug_log(cmd_debug);
                 
-                // Restore our program's settings after shell exits
-                SetConsoleOutputCP(CP_UTF8);
-                setup_console_size();
-                CONSOLE_CURSOR_INFO cursorInfo;
-                GetConsoleCursorInfo(GetStdHandle(STD_OUTPUT_HANDLE), &cursorInfo);
-                cursorInfo.bVisible = FALSE;
-                SetConsoleCursorInfo(GetStdHandle(STD_OUTPUT_HANDLE), &cursorInfo);
+                debug_log("DEBUG-11: About to launch cmd.exe with CreateProcess");
+                fflush(stdout);
                 
-                // Reset console input mode to ensure proper key handling
-                HANDLE hInput = GetStdHandle(STD_INPUT_HANDLE);
-                SetConsoleMode(hInput, 0);
+                // Use CreateProcess to launch cmd.exe in a way that completely detaches from parent
+                STARTUPINFO si;
+                PROCESS_INFORMATION pi;
                 
-                clear_screen();
+                ZeroMemory(&si, sizeof(si));
+                si.cb = sizeof(si);
+                ZeroMemory(&pi, sizeof(pi));
+                
+                // Build the full command line for CreateProcess
+                char full_command[MAX_PATH_LEN * 2];
+                snprintf(full_command, sizeof(full_command), "cmd.exe /k cd /d \"%s\"", current->directory);
+                
+                debug_log("DEBUG-11a: Using CreateProcess with command:");
+                debug_log(full_command);
+                
+                // Create the process
+                if (CreateProcess(
+                    NULL,           // No module name (use command line)
+                    full_command,   // Command line
+                    NULL,           // Process handle not inheritable
+                    NULL,           // Thread handle not inheritable
+                    FALSE,          // Set handle inheritance to FALSE
+                    CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP,  // Create new console and process group
+                    NULL,           // Use parent's environment block
+                    NULL,           // Use parent's starting directory
+                    &si,            // Pointer to STARTUPINFO structure
+                    &pi)            // Pointer to PROCESS_INFORMATION structure
+                ) {
+                    debug_log("DEBUG-12: CreateProcess succeeded");
+                    
+                    // Close process and thread handles (we don't need them)
+                    CloseHandle(pi.hProcess);
+                    CloseHandle(pi.hThread);
+                    
+                    debug_log("DEBUG-13: Exiting parent process");
+                    
+                    // Exit immediately - don't wait for the child
+                    exit(0);
+                } else {
+                    char error_msg[256];
+                    snprintf(error_msg, sizeof(error_msg), "DEBUG-12: CreateProcess failed with error %d", GetLastError());
+                    debug_log(error_msg);
+                    
+                    // Fall back to system() if CreateProcess fails
+                    system(cmd_command);
+                    exit(0);
+                }
             }
         }
     }
@@ -371,6 +474,8 @@ int handle_input(ProgramList* list, OriginalConsoleSettings* originalSettings) {
 }
 
 int main() {
+    debug_log("Program started");
+    
     // Store original console settings before making changes
     OriginalConsoleSettings originalSettings;
     store_original_settings(&originalSettings);
