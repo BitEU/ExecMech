@@ -1,0 +1,6 @@
+{
+    "name": "Command Prompt",
+    "description": "Windows command line interface for executing commands, running batch files, and system administration tasks. Provides access to DOS commands and utilities.",
+    "command": "cmd.exe /k [command]",
+    "directory": "C:\\Windows\\System32"
+}

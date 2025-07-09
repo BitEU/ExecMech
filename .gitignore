@@ -9,13 +9,14 @@ v17/
 *.csv
 *.xlsx
 *.xml
-*.json
 *.bin
 *.CE0
 *.USER
 *.log.*
 *.obj
 *.exe
+
+/.claude
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

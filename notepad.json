@@ -1,0 +1,6 @@
+{
+    "name": "Notepad",
+    "description": "Simple text editor included with Windows. Lightweight and fast for basic text editing tasks and quick notes.",
+    "command": "notepad.exe [filename]",
+    "directory": "C:\\Windows\\System32"
+}

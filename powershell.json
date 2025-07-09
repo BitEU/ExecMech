@@ -1,0 +1,6 @@
+{
+    "name": "PowerShell",
+    "description": "Advanced command-line shell and scripting language built on .NET Framework. Provides powerful automation capabilities and object-oriented programming features.",
+    "command": "powershell.exe -Command [command]",
+    "directory": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0"
+}

@@ -1,0 +1,6 @@
+{
+    "name": "Git",
+    "description": "Distributed version control system for tracking changes in source code during software development. Supports branching, merging, and collaborative development workflows.",
+    "command": "git --help",
+    "directory": "C:\\Program Files\\Git\\bin"
+}
