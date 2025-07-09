@@ -454,10 +454,11 @@ int handle_input(ProgramList* list, OriginalConsoleSettings* originalSettings) {
                     CloseHandle(pi.hProcess);
                     CloseHandle(pi.hThread);
                     
-                    debug_log("DEBUG-13: Exiting parent process");
+                    debug_log("DEBUG-13: Child process launched successfully");
                     
-                    // Exit immediately - don't wait for the child
-                    exit(0);
+                    // Restore console settings and return to ExecMech
+                    setup_console_size();
+                    clear_screen();
                 } else {
                     char error_msg[256];
                     snprintf(error_msg, sizeof(error_msg), "DEBUG-12: CreateProcess failed with error %d", GetLastError());
@@ -465,7 +466,9 @@ int handle_input(ProgramList* list, OriginalConsoleSettings* originalSettings) {
                     
                     // Fall back to system() if CreateProcess fails
                     system(cmd_command);
-                    exit(0);
+                    // Restore console settings and return to ExecMech
+                    setup_console_size();
+                    clear_screen();
                 }
             }
         }
